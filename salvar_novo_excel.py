@@ -20,7 +20,7 @@ class Classificacao(BaseModel):
 
 
 # =========================
-# Extrair JSON (SIMPLES E ESTÁVEL)
+# Extrair JSON
 # =========================
 def extrair_json(texto):
     match = re.search(r'\{.*\}', texto, re.DOTALL)
@@ -62,7 +62,6 @@ Notícia:
 
         json_extraido = extrair_json(conteudo)
 
-        # 👉 se não achou JSON, tenta usar o bruto mesmo
         if not json_extraido:
             json_extraido = conteudo_bruto
 
@@ -85,16 +84,12 @@ Notícia:
 # =========================
 inicio_total = time.time()
 
-# 📂 ARQUIVOS
 arquivos = [
     "dataset_instagram-post-scraper_2026-03-11_14-26-12-252.xlsx",
     "dataset_instagram-post-scraper_2026-03-11_16-31-48-149.xlsx",
     "dataset_instagram-post-scraper_2026-03-11_16-42-24-303.xlsx"
 ]
 
-# =========================
-# LEITURA E JUNÇÃO
-# =========================
 dfs = []
 
 for arquivo in arquivos:
@@ -107,7 +102,12 @@ df_total = pd.concat(dfs, ignore_index=True)
 
 print(f"\n📊 Total de notícias: {len(df_total)}")
 
-# remover duplicados
+
+# =========================
+# 🔥 LISTA DE RESULTADOS
+# =========================
+resultados = []
+
 
 # =========================
 # LOOP PRINCIPAL
@@ -128,25 +128,54 @@ for i, row in df_total.iterrows():
     if not caption or len(caption.strip()) < 10 or len(caption.split()) <= 3:
         print("\n⚠️ Notícia muito curta → FALSE")
 
-        print("\n✅ RESULTADO:")
-        print("Meio ambiente:", False)
-        print("Justificativa:", "Notícia muito curta ou sem conteúdo suficiente.")
+        meio_ambiente = False
+        justificativa = "Notícia muito curta ou sem conteúdo suficiente."
 
     else:
         resultado = classificar(caption)
 
         if resultado:
+            meio_ambiente = resultado.MeioAmbiente
+            justificativa = resultado.Justificativa
+
             print("\n✅ RESULTADO:")
-            print("Meio ambiente:", resultado.MeioAmbiente)
-            print("Justificativa:", resultado.Justificativa)
+            print("Meio ambiente:", meio_ambiente)
+            print("Justificativa:", justificativa)
+
         else:
             print("\n❌ FALHOU DE VEZ")
+
+            meio_ambiente = False
+            justificativa = "Falha na classificação"
+
+    # =========================
+    # 💾 SALVAR RESULTADO
+    # =========================
+    resultados.append({
+        "noticia": caption,
+        "pagina": pagina,
+        "url": link,
+        "meio_ambiente": meio_ambiente,
+        "justificativa": justificativa
+    })
+
+    # 💾 salvamento parcial (a cada 20)
+    if (i + 1) % 20 == 0:
+        pd.DataFrame(resultados).to_excel("resultado_parcial.xlsx", index=False)
+        print("💾 Salvamento parcial...")
 
     fim_noticia = time.time()
     print(f"\n⏱️ Tempo: {fim_noticia - inicio_noticia:.2f}s")
     print("\n" + "="*60)
 
 
+# =========================
+# 💾 SALVAMENTO FINAL
+# =========================
+df_resultado = pd.DataFrame(resultados)
+df_resultado.to_excel("resultado_final.xlsx", index=False)
+
 fim_total = time.time()
 
+print("\n✅ Planilha salva como resultado_final.xlsx")
 print(f"\n🚀 Tempo total: {fim_total - inicio_total:.2f} segundos")
