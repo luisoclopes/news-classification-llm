@@ -3,7 +3,6 @@ import ollama
 import json
 import re
 import time
-from glob import glob  # ⬅️ ADICIONADO
 from pydantic import BaseModel, field_validator
 
 # =========================
@@ -35,15 +34,20 @@ def classificar(caption, tentativas=3):
     for tentativa in range(tentativas):
 
         PROMPT = f"""
-Classifique se a notícia é sobre MEIO AMBIENTE.
+Classifique se a notícia tem alguma relação com MEIO AMBIENTE.
 
 Considere:
-desmatamento, poluição, mudanças climáticas, biodiversidade,
-sustentabilidade, queimadas, recursos naturais.
+- natureza
+- sustentabilidade
+- impacto ambiental
+- uso de recursos naturais
+- políticas ambientais
+- eventos que possam afetar o meio ambiente
 
 Regra:
-- Relação deve ser direta
-- Se houver dúvida → false
+- Qualquer relação plausível com meio ambiente → true
+- Mesmo que indireta ou contextual
+- Só responda false se NÃO houver nenhuma relação
 
 Responda em JSON no formato:
 {{"MeioAmbiente": true ou false, "Justificativa": "explicação clara"}}
@@ -85,15 +89,16 @@ Notícia:
 # =========================
 inicio_total = time.time()
 
-# 🔥 PEGA TODOS OS EXCELS DA PASTA data
-arquivos = sorted(glob("data/*.xlsx"))
-
-print(f"\n📂 Arquivos encontrados: {len(arquivos)}")
+arquivos = [
+    "dataset_instagram-post-scraper_2026-03-11_14-26-12-252.xlsx",
+    "dataset_instagram-post-scraper_2026-03-11_16-31-48-149.xlsx",
+    "dataset_instagram-post-scraper_2026-03-11_16-42-24-303.xlsx"
+]
 
 dfs = []
 
 for arquivo in arquivos:
-    print(f"\n📄 Lendo: {arquivo}")
+    print(f"\n📂 Lendo: {arquivo}")
     df = pd.read_excel(arquivo)
     df.columns = df.columns.str.strip()
     dfs.append(df)
@@ -161,7 +166,7 @@ for i, row in df_total.iterrows():
 
     # 💾 salvamento parcial (a cada 20)
     if (i + 1) % 20 == 0:
-        pd.DataFrame(resultados).to_excel("resultado_parcial.xlsx", index=False)
+        pd.DataFrame(resultados).to_excel("resultado_parcial_leve.xlsx", index=False)
         print("💾 Salvamento parcial...")
 
     fim_noticia = time.time()
@@ -173,9 +178,9 @@ for i, row in df_total.iterrows():
 # 💾 SALVAMENTO FINAL
 # =========================
 df_resultado = pd.DataFrame(resultados)
-df_resultado.to_excel("resultado_final.xlsx", index=False)
+df_resultado.to_excel("resultado_final_leve.xlsx", index=False)
 
 fim_total = time.time()
 
-print("\n✅ Planilha salva como resultado_final.xlsx")
+print("\n✅ Planilha salva como resultado_final_leve.xlsx")
 print(f"\n🚀 Tempo total: {fim_total - inicio_total:.2f} segundos")
