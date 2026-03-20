@@ -9,6 +9,17 @@ from typing import Optional
 from pydantic import BaseModel, field_validator
 
 # =========================
+# FUNÇÃO PARA EXCEL (BOOLEAN → TEXTO)
+# =========================
+def bool_to_str(valor):
+    if valor is True:
+        return "VERDADEIRO"
+    if valor is False:
+        return "FALSO"
+    return valor
+
+
+# =========================
 # Modelo
 # =========================
 class Classificacao(BaseModel):
@@ -124,6 +135,25 @@ Notícia:
 
 
 # =========================
+# FUNÇÃO PARA SALVAR (CONVERSÃO FINAL)
+# =========================
+def salvar_excel(df, caminho):
+    df = df.copy()
+
+    colunas_bool = [
+        "rigido_meio", "rigido_crise",
+        "medio_meio", "medio_crise",
+        "leve_meio", "leve_crise"
+    ]
+
+    for col in colunas_bool:
+        if col in df.columns:
+            df[col] = df[col].apply(bool_to_str)
+
+    df.to_excel(caminho, index=False)
+
+
+# =========================
 # MAIN
 # =========================
 inicio_total = time.time()
@@ -142,7 +172,7 @@ df_total = pd.concat(dfs, ignore_index=True)
 print(f"\n📊 Total de notícias: {len(df_total)}")
 
 arquivo_saida = "resultado_final_oficial.xlsx"
-arquivo_parcial = "parcial_resultado.xlsx"  # 🆕 NOVO
+arquivo_parcial = "parcial_resultado.xlsx"
 
 # =========================
 # CHECKPOINT
@@ -150,8 +180,10 @@ arquivo_parcial = "parcial_resultado.xlsx"  # 🆕 NOVO
 if os.path.exists(arquivo_saida):
     print("\n♻️ Carregando progresso anterior...")
     df_existente = pd.read_excel(arquivo_saida)
+
     urls_processadas = set(df_existente["url"].astype(str))
     resultados = df_existente.to_dict("records")
+
     print(f"✅ Já processadas: {len(urls_processadas)}")
 else:
     urls_processadas = set()
@@ -202,24 +234,25 @@ for i, row in df_total.iterrows():
 
     urls_processadas.add(link)
 
-    # 💾 checkpoint + parcial
     if (i + 1) % 10 == 0:
         df_temp = pd.DataFrame(resultados)
 
-        df_temp.to_excel(arquivo_saida, index=False)   # checkpoint
-        df_temp.to_excel(arquivo_parcial, index=False) # 🆕 parcial
+        salvar_excel(df_temp, arquivo_saida)
+        salvar_excel(df_temp, arquivo_parcial)
 
         print("💾 Checkpoint + parcial atualizados")
 
-# =========================
-# 💾 SALVAMENTO FINAL
-# =========================
-df_final = pd.DataFrame(resultados)
-df_final.to_excel(arquivo_saida, index=False)
-df_final.to_excel(arquivo_parcial, index=False)  # 🆕
 
 # =========================
-# 🔥 REPROCESSAR ERROS
+# SALVAMENTO FINAL
+# =========================
+df_final = pd.DataFrame(resultados)
+
+salvar_excel(df_final, arquivo_saida)
+salvar_excel(df_final, arquivo_parcial)
+
+# =========================
+# REPROCESSAR ERROS
 # =========================
 print("\n♻️ Verificando erros para reprocessar...")
 
@@ -242,29 +275,29 @@ for idx in erros.index:
     medio = classificar(caption, "medio")
     leve = classificar(caption, "leve")
 
-    df_final.loc[idx, "rigido_meio"] = rigido.MeioAmbiente
-    df_final.loc[idx, "rigido_crise"] = rigido.CriseAmbiental
-    df_final.loc[idx, "rigido_justificativa"] = rigido.Justificativa
+    df_final.at[idx, "rigido_meio"] = rigido.MeioAmbiente
+    df_final.at[idx, "rigido_crise"] = rigido.CriseAmbiental
+    df_final.at[idx, "rigido_justificativa"] = rigido.Justificativa
 
-    df_final.loc[idx, "medio_meio"] = medio.MeioAmbiente
-    df_final.loc[idx, "medio_crise"] = medio.CriseAmbiental
-    df_final.loc[idx, "medio_justificativa"] = medio.Justificativa
+    df_final.at[idx, "medio_meio"] = medio.MeioAmbiente
+    df_final.at[idx, "medio_crise"] = medio.CriseAmbiental
+    df_final.at[idx, "medio_justificativa"] = medio.Justificativa
 
-    df_final.loc[idx, "leve_meio"] = leve.MeioAmbiente
-    df_final.loc[idx, "leve_crise"] = leve.CriseAmbiental
-    df_final.loc[idx, "leve_justificativa"] = leve.Justificativa
+    df_final.at[idx, "leve_meio"] = leve.MeioAmbiente
+    df_final.at[idx, "leve_crise"] = leve.CriseAmbiental
+    df_final.at[idx, "leve_justificativa"] = leve.Justificativa
 
-    df_final.to_excel(arquivo_saida, index=False)
+    salvar_excel(df_final, arquivo_saida)
 
 print("\n✅ Reprocessamento concluído!")
 
 # =========================
-# 🛡️ BACKUP AUTOMÁTICO
+# BACKUP
 # =========================
 timestamp = time.strftime("%Y%m%d_%H%M%S")
 backup_nome = f"backup_resultado_{timestamp}.xlsx"
 
-df_final.to_excel(backup_nome, index=False)
+salvar_excel(df_final, backup_nome)
 
 print(f"\n🛡️ Backup criado: {backup_nome}")
 
