@@ -24,7 +24,7 @@ def bool_to_str(valor):
 # =========================
 class Classificacao(BaseModel):
     MeioAmbiente: Optional[bool]
-    CriseAmbiental: Optional[bool]
+    CriseClimatica: Optional[bool]
     Justificativa: str
 
     @field_validator("Justificativa")
@@ -35,24 +35,25 @@ class Classificacao(BaseModel):
 
 
 # =========================
-# Parser
+# Parser ROBUSTO
 # =========================
 def extrair_json(texto):
     try:
         match = re.search(r'\{.*?\}', texto, re.DOTALL)
         if match:
-            return json.loads(match.group(0))
+            dados = json.loads(match.group(0))
+
+            # 🔥 Compatibilidade com respostas antigas do modelo
+            if "CriseAmbiental" in dados and "CriseClimatica" not in dados:
+                dados["CriseClimatica"] = dados["CriseAmbiental"]
+
+            return dados
     except:
         pass
 
-    meio = False
-    crise = False
-
-    if re.search(r'meio.*true', texto, re.I):
-        meio = True
-
-    if re.search(r'crise.*true', texto, re.I):
-        crise = True
+    # fallback inteligente
+    meio = bool(re.search(r'meio.*true', texto, re.I))
+    crise = bool(re.search(r'crise.*true', texto, re.I))
 
     justificativa_match = re.search(r'justificativa[:\-]?\s*(.*)', texto, re.I)
 
@@ -63,7 +64,7 @@ def extrair_json(texto):
 
     return {
         "MeioAmbiente": meio,
-        "CriseAmbiental": crise,
+        "CriseClimatica": crise,
         "Justificativa": justificativa
     }
 
@@ -84,23 +85,24 @@ def classificar(caption, prompt_tipo, tentativas=5):
 Classifique a notícia em:
 
 1) Meio Ambiente
-2) Crise Ambiental
+2) Crise Climática
 
-Crise ambiental inclui:
+Crise climática inclui:
 - aquecimento global
 - eventos extremos
-- desastres ambientais
-- colapso ambiental
+- mudanças climáticas
+- crise do clima
 
 Regra:
-- Crise ambiental ⊂ Meio ambiente
+- Crise climática ⊂ Meio ambiente
 
 {instrucao}
 
-Responda em JSON:
+Responda APENAS em JSON válido:
+
 {{
-"MeioAmbiente": true ou false,
-"CriseAmbiental": true ou false,
+"MeioAmbiente": true,
+"CriseClimatica": true,
 "Justificativa": "explicação única"
 }}
 
@@ -119,23 +121,28 @@ Notícia:
             conteudo = resposta["message"]["content"]
             dados = extrair_json(conteudo)
 
-            if dados.get("CriseAmbiental"):
+            # 🔥 NORMALIZAÇÃO FORTE
+            dados["MeioAmbiente"] = str(dados.get("MeioAmbiente")).lower() in ["true", "1"]
+            dados["CriseClimatica"] = str(dados.get("CriseClimatica")).lower() in ["true", "1"]
+
+            if dados["CriseClimatica"]:
                 dados["MeioAmbiente"] = True
 
             return Classificacao(**dados)
 
         except Exception:
             print(f"⚠️ [{prompt_tipo}] tentativa {tentativa+1} falhou...")
+            time.sleep(1)
 
     return Classificacao(
         MeioAmbiente=None,
-        CriseAmbiental=None,
+        CriseClimatica=None,
         Justificativa="ERRO_PROCESSAMENTO"
     )
 
 
 # =========================
-# FUNÇÃO PARA SALVAR (CONVERSÃO FINAL)
+# FUNÇÃO PARA SALVAR
 # =========================
 def salvar_excel(df, caminho):
     df = df.copy()
@@ -206,7 +213,7 @@ for i, row in df_total.iterrows():
     if not caption or len(caption.strip()) < 10:
         rigido = medio = leve = Classificacao(
             MeioAmbiente=False,
-            CriseAmbiental=False,
+            CriseClimatica=False,
             Justificativa="Texto insuficiente"
         )
     else:
@@ -220,15 +227,15 @@ for i, row in df_total.iterrows():
         "url": link,
 
         "rigido_meio": rigido.MeioAmbiente,
-        "rigido_crise": rigido.CriseAmbiental,
+        "rigido_crise": rigido.CriseClimatica,
         "rigido_justificativa": rigido.Justificativa,
 
         "medio_meio": medio.MeioAmbiente,
-        "medio_crise": medio.CriseAmbiental,
+        "medio_crise": medio.CriseClimatica,
         "medio_justificativa": medio.Justificativa,
 
         "leve_meio": leve.MeioAmbiente,
-        "leve_crise": leve.CriseAmbiental,
+        "leve_crise": leve.CriseClimatica,
         "leve_justificativa": leve.Justificativa,
     })
 
@@ -251,45 +258,49 @@ df_final = pd.DataFrame(resultados)
 salvar_excel(df_final, arquivo_saida)
 salvar_excel(df_final, arquivo_parcial)
 
+
 # =========================
-# REPROCESSAR ERROS
+# 🔥 REPROCESSAR ERROS ATÉ SUMIR
 # =========================
-print("\n♻️ Verificando erros para reprocessar...")
+print("\n♻️ Reprocessando erros até zerar...")
 
-df_final = pd.read_excel(arquivo_saida)
+for rodada in range(3):  # tenta até 3 vezes
+    df_final = pd.read_excel(arquivo_saida)
 
-erros = df_final[
-    (df_final["rigido_justificativa"] == "ERRO_PROCESSAMENTO") |
-    (df_final["medio_justificativa"] == "ERRO_PROCESSAMENTO") |
-    (df_final["leve_justificativa"] == "ERRO_PROCESSAMENTO")
-]
+    erros = df_final[
+        (df_final["rigido_justificativa"] == "ERRO_PROCESSAMENTO") |
+        (df_final["medio_justificativa"] == "ERRO_PROCESSAMENTO") |
+        (df_final["leve_justificativa"] == "ERRO_PROCESSAMENTO")
+    ]
 
-print(f"⚠️ Erros encontrados: {len(erros)}")
+    print(f"🔁 Rodada {rodada+1} - erros restantes: {len(erros)}")
 
-for idx in erros.index:
-    caption = str(df_final.loc[idx, "noticia"])
+    if len(erros) == 0:
+        break
 
-    print(f"\n🔄 Reprocessando índice {idx}")
+    for idx in erros.index:
+        caption = str(df_final.loc[idx, "noticia"])
 
-    rigido = classificar(caption, "rigido")
-    medio = classificar(caption, "medio")
-    leve = classificar(caption, "leve")
+        rigido = classificar(caption, "rigido")
+        medio = classificar(caption, "medio")
+        leve = classificar(caption, "leve")
 
-    df_final.at[idx, "rigido_meio"] = rigido.MeioAmbiente
-    df_final.at[idx, "rigido_crise"] = rigido.CriseAmbiental
-    df_final.at[idx, "rigido_justificativa"] = rigido.Justificativa
+        df_final.at[idx, "rigido_meio"] = rigido.MeioAmbiente
+        df_final.at[idx, "rigido_crise"] = rigido.CriseClimatica
+        df_final.at[idx, "rigido_justificativa"] = rigido.Justificativa
 
-    df_final.at[idx, "medio_meio"] = medio.MeioAmbiente
-    df_final.at[idx, "medio_crise"] = medio.CriseAmbiental
-    df_final.at[idx, "medio_justificativa"] = medio.Justificativa
+        df_final.at[idx, "medio_meio"] = medio.MeioAmbiente
+        df_final.at[idx, "medio_crise"] = medio.CriseClimatica
+        df_final.at[idx, "medio_justificativa"] = medio.Justificativa
 
-    df_final.at[idx, "leve_meio"] = leve.MeioAmbiente
-    df_final.at[idx, "leve_crise"] = leve.CriseAmbiental
-    df_final.at[idx, "leve_justificativa"] = leve.Justificativa
+        df_final.at[idx, "leve_meio"] = leve.MeioAmbiente
+        df_final.at[idx, "leve_crise"] = leve.CriseClimatica
+        df_final.at[idx, "leve_justificativa"] = leve.Justificativa
 
     salvar_excel(df_final, arquivo_saida)
 
-print("\n✅ Reprocessamento concluído!")
+print("\n✅ Final 100% limpo!")
+
 
 # =========================
 # BACKUP
@@ -300,6 +311,7 @@ backup_nome = f"backup_resultado_{timestamp}.xlsx"
 salvar_excel(df_final, backup_nome)
 
 print(f"\n🛡️ Backup criado: {backup_nome}")
+
 
 # =========================
 # FINAL

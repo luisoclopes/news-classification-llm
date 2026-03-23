@@ -1,7 +1,7 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 
-ARQUIVO = "resultado_final_corrigido.xlsx"
+ARQUIVO = "resultado_final_oficial.xlsx"
 
 
 # =========================
