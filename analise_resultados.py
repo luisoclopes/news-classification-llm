@@ -38,36 +38,75 @@ def contagem_completa(df):
 
 
 # =========================
-# GRÁFICO (VERDADEIRO vs FALSO)
+# GRÁFICO MELHORADO (SLIDE)
 # =========================
 def grafico(df):
     print("\n📈 Gerando gráfico...")
 
-    labels = []
-    verdadeiros = []
-    falsos = []
-
-    colunas = [
-        "rigido_meio", "rigido_crise",
-        "medio_meio", "medio_crise",
-        "leve_meio", "leve_crise"
+    labels = [
+        "Rígido Meio", "Rígido Crise",
+        "Médio Meio", "Médio Crise",
+        "Leve Meio", "Leve Crise"
     ]
 
-    for col in colunas:
-        labels.append(col)
-        verdadeiros.append((df[col] == "VERDADEIRO").sum())
-        falsos.append((df[col] == "FALSO").sum())
+    verdadeiros = [
+        (df["rigido_meio"] == "VERDADEIRO").sum(),
+        (df["rigido_crise"] == "VERDADEIRO").sum(),
+        (df["medio_meio"] == "VERDADEIRO").sum(),
+        (df["medio_crise"] == "VERDADEIRO").sum(),
+        (df["leve_meio"] == "VERDADEIRO").sum(),
+        (df["leve_crise"] == "VERDADEIRO").sum(),
+    ]
+
+    falsos = [
+        (df["rigido_meio"] == "FALSO").sum(),
+        (df["rigido_crise"] == "FALSO").sum(),
+        (df["medio_meio"] == "FALSO").sum(),
+        (df["medio_crise"] == "FALSO").sum(),
+        (df["leve_meio"] == "FALSO").sum(),
+        (df["leve_crise"] == "FALSO").sum(),
+    ]
+
+    totais = [v + f for v, f in zip(verdadeiros, falsos)]
 
     x = range(len(labels))
+    largura = 0.4
 
-    plt.figure()
-    plt.bar(x, verdadeiros, label="VERDADEIRO")
-    plt.bar(x, falsos, bottom=verdadeiros, label="FALSO")
+    plt.figure(figsize=(12, 6))
 
-    plt.xticks(x, labels, rotation=45)
-    plt.title("Distribuição de classificações")
+    # barras lado a lado
+    plt.bar([i - largura/2 for i in x], verdadeiros, width=largura, label="VERDADEIRO")
+    plt.bar([i + largura/2 for i in x], falsos, width=largura, label="FALSO")
+
+    # valores + porcentagem
+    for i in range(len(labels)):
+        if totais[i] > 0:
+            perc_v = (verdadeiros[i] / totais[i]) * 100
+            perc_f = (falsos[i] / totais[i]) * 100
+        else:
+            perc_v = perc_f = 0
+
+        plt.text(i - largura/2, verdadeiros[i] + 1,
+                 f"{verdadeiros[i]}\n({perc_v:.1f}%)",
+                 ha='center', fontsize=9)
+
+        plt.text(i + largura/2, falsos[i] + 1,
+                 f"{falsos[i]}\n({perc_f:.1f}%)",
+                 ha='center', fontsize=9)
+
+    # layout melhorado
+    plt.xticks(x, labels, rotation=25)
+    plt.title("Distribuição de Classificações por Prompt", fontsize=16)
+    plt.ylabel("Quantidade de Notícias")
+
+    plt.grid(axis='y', linestyle='--', alpha=0.5)
+
     plt.legend()
     plt.tight_layout()
+
+    # salvar imagem para slide
+    plt.savefig("grafico_classificacoes.png", dpi=300)
+
     plt.show()
 
 
@@ -116,7 +155,7 @@ def main():
 
     df = pd.read_excel(ARQUIVO)
 
-    # 🔥 garantir string
+    # garantir string
     df = df.astype(str)
 
     # 1. contagem
