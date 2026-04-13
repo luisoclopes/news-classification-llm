@@ -34,7 +34,6 @@ def extrair_data(page):
         if not data_str:
             return None
 
-        # 🔥 corrigir timezone bug (teu erro do 31 virar 2026)
         data = datetime.fromisoformat(data_str.replace("Z", ""))
         return data.replace(tzinfo=None)
 
@@ -43,38 +42,62 @@ def extrair_data(page):
 
 
 # =========================
-# EXTRAIR TEXTO REAL (CORRETO)
+# EXTRAIR TEXTO + LIKES + COMENTÁRIOS (OG)
 # =========================
-def extrair_caption_real(page):
-
+def extrair_og_data(page):
     try:
-        # 🔥 seletor do container do caption
-        container = page.locator("div[role='dialog']")
+        meta = page.locator("meta[property='og:description']")
+        content = meta.get_attribute("content")
 
-        spans = container.locator("span")
+        if not content:
+            return "", "N/A", "N/A"
 
-        textos = []
+        # exemplo:
+        # "4,766 likes, 1,068 comments - folhadespaulo on December..."
 
-        for i in range(spans.count()):
-            txt = spans.nth(i).inner_text()
+        partes = content.split(" - ", 1)
 
-            # 🔥 FILTRO INTELIGENTE
-            if (
-                len(txt) > 40
-                and "See translation" not in txt
-                and "Curtir" not in txt
-                and "Like" not in txt
-                and "Seguir" not in txt
-            ):
-                textos.append(txt)
+        if len(partes) < 2:
+            return content, "N/A", "N/A"
 
-        # juntar tudo
-        caption = " ".join(textos)
+        metricas = partes[0]
+        texto = partes[1]
 
-        return caption.strip()
+        likes = "N/A"
+        comentarios = "N/A"
+
+        try:
+            if "likes" in metricas:
+                likes = metricas.split("likes")[0].strip()
+
+            if "comments" in metricas:
+                comentarios = metricas.split("comments")[0].split(",")[-1].strip()
+
+        except:
+            pass
+
+        return texto.strip(), likes, comentarios
 
     except:
-        return ""
+        return "", "N/A", "N/A"
+
+
+# =========================
+# LIMPAR TEXTO (IMPORTANTE)
+# =========================
+def limpar_texto(texto):
+    try:
+        # remove "folhadespaulo on December..."
+        if ": " in texto:
+            texto = texto.split(": ", 1)[1]
+
+        # remove aspas finais
+        texto = texto.strip().strip('"')
+
+        return texto
+
+    except:
+        return texto
 
 
 # =========================
@@ -83,7 +106,6 @@ def extrair_caption_real(page):
 def main():
 
     dados, urls_processadas = carregar_progresso()
-
     df_urls = pd.read_excel(ARQUIVO_INPUT)
 
     with sync_playwright() as p:
@@ -109,7 +131,9 @@ def main():
 
             try:
                 page.goto(link, timeout=60000)
-                page.wait_for_selector("time", timeout=10000)
+
+                # ⚡ não precisa esperar DOM inteiro
+                page.wait_for_selector("meta[property='og:description']", timeout=8000)
 
                 data = extrair_data(page)
 
@@ -119,47 +143,49 @@ def main():
 
                 print(f"📅 {data}")
 
-                # 🔥 FILTRO DE ANO
+                # ignorar 2026
                 if data > DATA_FIM:
                     print("⏩ Ignorando (2026)")
                     continue
 
+                # parar em 2024
                 if data < DATA_INICIO:
                     print("🛑 Chegou antes de 2025 — FINALIZANDO")
                     break
 
-                # =========================
-                # PEGAR TEXTO REAL
-                # =========================
-                caption = extrair_caption_real(page)
+                # 🔥 EXTRAÇÃO PRINCIPAL
+                caption, curtidas, comentarios = extrair_og_data(page)
 
                 if not caption:
-                    print("⚠️ Caption vazio")
+                    print("⚠️ Sem caption")
                     continue
+
+                caption = limpar_texto(caption)
 
                 dados.append({
                     "url": link,
                     "caption": caption,
-                    "data": data.strftime("%Y-%m-%d")
+                    "data": data.strftime("%Y-%m-%d"),
+                    "curtidas": curtidas,
+                    "comentarios": comentarios
                 })
 
                 urls_processadas.add(link)
 
-                print("✅ SALVO")
+                print(f"✅ SALVO | 👍 {curtidas} | 💬 {comentarios}")
 
-                # 💾 salvamento frequente (ESSENCIAL)
+                # 💾 salvamento frequente
                 if len(dados) % 20 == 0:
                     pd.DataFrame(dados).to_excel(ARQUIVO_OUTPUT, index=False)
                     print("💾 Salvamento parcial")
 
-                # 🔥 delay anti-bloqueio
-                time.sleep(1.5)
+                # ⚡ mais rápido e seguro
+                time.sleep(1.2)
 
             except Exception as e:
                 print(f"⚠️ Erro: {e}")
                 continue
 
-        # salvar final
         pd.DataFrame(dados).to_excel(ARQUIVO_OUTPUT, index=False)
 
         print("\n🎯 FINALIZADO")

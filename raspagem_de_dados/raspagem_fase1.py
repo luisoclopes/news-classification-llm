@@ -4,7 +4,7 @@ import os
 from playwright.sync_api import sync_playwright
 
 USERNAME = "folhadespaulo"
-TOTAL_POSTS = 12000
+TOTAL_POSTS = 12500
 
 ARQUIVO = "urls_folha.xlsx"
 
