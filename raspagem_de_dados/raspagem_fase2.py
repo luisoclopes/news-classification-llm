@@ -5,22 +5,39 @@ from datetime import datetime
 from playwright.sync_api import sync_playwright
 
 ARQUIVO_INPUT = "urls_folha.xlsx"
-ARQUIVO_OUTPUT = "posts_2025.xlsx"
+ARQUIVO_OUTPUT = "posts_folha_2025.xlsx"
+ARQUIVO_CONTROLE = "urls_processadas.txt"  # 🔥 NOVO
 
 DATA_INICIO = datetime(2025, 1, 1)
 DATA_FIM = datetime(2025, 12, 31)
 
 
 # =========================
-# CARREGAR PROGRESSO
+# CARREGAR PROGRESSO (2025)
 # =========================
 def carregar_progresso():
     if os.path.exists(ARQUIVO_OUTPUT):
         df = pd.read_excel(ARQUIVO_OUTPUT)
-        urls_processadas = set(df["url"].astype(str))
-        print(f"♻️ Retomando: {len(urls_processadas)} já processados")
-        return df.to_dict("records"), urls_processadas
-    return [], set()
+        print(f"♻️ Retomando dados: {len(df)} já salvos")
+        return df.to_dict("records")
+    return []
+
+
+# =========================
+# CONTROLE DE URLs (TODOS)
+# =========================
+def carregar_urls_processadas():
+    if os.path.exists(ARQUIVO_CONTROLE):
+        with open(ARQUIVO_CONTROLE, "r") as f:
+            urls = set(f.read().splitlines())
+            print(f"♻️ URLs já processadas: {len(urls)}")
+            return urls
+    return set()
+
+
+def salvar_url_processada(url):
+    with open(ARQUIVO_CONTROLE, "a") as f:
+        f.write(url + "\n")
 
 
 # =========================
@@ -28,13 +45,11 @@ def carregar_progresso():
 # =========================
 def extrair_data(page):
     try:
-        time_el = page.locator("time").first
-        data_str = time_el.get_attribute("datetime")
-
-        if not data_str:
+        t = page.locator("time").first.get_attribute("datetime")
+        if not t:
             return None
 
-        data = datetime.fromisoformat(data_str.replace("Z", ""))
+        data = datetime.fromisoformat(t.replace("Z", ""))
         return data.replace(tzinfo=None)
 
     except:
@@ -42,59 +57,56 @@ def extrair_data(page):
 
 
 # =========================
-# EXTRAIR TEXTO + LIKES + COMENTÁRIOS (OG)
+# EXTRAIR TEXTO + MÉTRICAS
 # =========================
 def extrair_og_data(page):
     try:
-        meta = page.locator("meta[property='og:description']")
-        content = meta.get_attribute("content")
+        content = page.locator("meta[property='og:description']").get_attribute("content")
 
         if not content:
-            return "", "N/A", "N/A"
-
-        # exemplo:
-        # "4,766 likes, 1,068 comments - folhadespaulo on December..."
+            return "", None, None, None
 
         partes = content.split(" - ", 1)
 
         if len(partes) < 2:
-            return content, "N/A", "N/A"
+            return content, None, None, None
 
         metricas = partes[0]
         texto = partes[1]
 
-        likes = "N/A"
-        comentarios = "N/A"
+        # likes e comentários
+        likes = None
+        comentarios = None
 
         try:
             if "likes" in metricas:
-                likes = metricas.split("likes")[0].strip()
+                likes = int(metricas.split("likes")[0].replace(",", "").strip())
 
             if "comments" in metricas:
-                comentarios = metricas.split("comments")[0].split(",")[-1].strip()
-
+                comentarios = int(
+                    metricas.split("comments")[0]
+                    .split(",")[-1]
+                    .replace(",", "")
+                    .strip()
+                )
         except:
             pass
 
-        return texto.strip(), likes, comentarios
+        return texto.strip(), likes, comentarios, "folhadespaulo"
 
     except:
-        return "", "N/A", "N/A"
+        return "", None, None, "folhadespaulo"
 
 
 # =========================
-# LIMPAR TEXTO (IMPORTANTE)
+# LIMPAR TEXTO
 # =========================
 def limpar_texto(texto):
     try:
-        # remove "folhadespaulo on December..."
         if ": " in texto:
             texto = texto.split(": ", 1)[1]
 
-        # remove aspas finais
-        texto = texto.strip().strip('"')
-
-        return texto
+        return texto.strip().strip('"')
 
     except:
         return texto
@@ -105,8 +117,13 @@ def limpar_texto(texto):
 # =========================
 def main():
 
-    dados, urls_processadas = carregar_progresso()
+    dados = carregar_progresso()
+    urls_processadas = carregar_urls_processadas()
+
     df_urls = pd.read_excel(ARQUIVO_INPUT)
+
+    total = len(df_urls)
+    inicio_tempo = time.time()
 
     with sync_playwright() as p:
 
@@ -124,6 +141,7 @@ def main():
 
             link = row["url"]
 
+            # 🔥 PULAR QUALQUER URL JÁ PROCESSADA
             if link in urls_processadas:
                 continue
 
@@ -131,9 +149,11 @@ def main():
 
             try:
                 page.goto(link, timeout=60000)
+                page.wait_for_load_state("domcontentloaded")
 
-                # ⚡ não precisa esperar DOM inteiro
-                page.wait_for_selector("meta[property='og:description']", timeout=8000)
+                # 🔥 MARCA COMO PROCESSADO (ANTES DE TUDO)
+                salvar_url_processada(link)
+                urls_processadas.add(link)
 
                 data = extrair_data(page)
 
@@ -153,8 +173,8 @@ def main():
                     print("🛑 Chegou antes de 2025 — FINALIZANDO")
                     break
 
-                # 🔥 EXTRAÇÃO PRINCIPAL
-                caption, curtidas, comentarios = extrair_og_data(page)
+                # EXTRAÇÃO
+                caption, curtidas, comentarios, usuario = extrair_og_data(page)
 
                 if not caption:
                     print("⚠️ Sem caption")
@@ -163,6 +183,7 @@ def main():
                 caption = limpar_texto(caption)
 
                 dados.append({
+                    "pagina": usuario,
                     "url": link,
                     "caption": caption,
                     "data": data.strftime("%Y-%m-%d"),
@@ -170,16 +191,23 @@ def main():
                     "comentarios": comentarios
                 })
 
-                urls_processadas.add(link)
-
                 print(f"✅ SALVO | 👍 {curtidas} | 💬 {comentarios}")
 
-                # 💾 salvamento frequente
+                # 📊 PROGRESSO + ETA
+                processados = i + 1
+                tempo_passado = time.time() - inicio_tempo
+
+                if processados > 0:
+                    media = tempo_passado / processados
+                    restante = (total - processados) * media
+
+                    print(f"📊 {processados}/{total} | ⏱️ ETA: {int(restante/60)} min")
+
+                # 💾 salvamento
                 if len(dados) % 20 == 0:
                     pd.DataFrame(dados).to_excel(ARQUIVO_OUTPUT, index=False)
                     print("💾 Salvamento parcial")
 
-                # ⚡ mais rápido e seguro
                 time.sleep(1.2)
 
             except Exception as e:
