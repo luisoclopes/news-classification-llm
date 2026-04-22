@@ -208,7 +208,7 @@ def main():
                     pd.DataFrame(dados).to_excel(ARQUIVO_OUTPUT, index=False)
                     print("💾 Salvamento parcial")
 
-                time.sleep(1.2)
+                time.sleep(0.4)
 
             except Exception as e:
                 print(f"⚠️ Erro: {e}")
