@@ -9,6 +9,20 @@ from typing import Optional
 from pydantic import BaseModel, field_validator
 
 # =========================
+# CONFIG (🔥 NOVO)
+# =========================
+MODEL_NAME = os.getenv("MODEL_NAME", "llama3.2:3b")
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", None)
+
+if OLLAMA_HOST:
+    ollama._client = ollama.Client(host=OLLAMA_HOST)
+
+# arquivos agora dependem do modelo (🔥 opcional mas MUITO útil)
+arquivo_saida = f"resultado_{MODEL_NAME.replace(':','_')}.xlsx"
+arquivo_parcial = f"parcial_{MODEL_NAME.replace(':','_')}.xlsx"
+
+
+# =========================
 # FUNÇÃO PARA EXCEL (BOOLEAN → TEXTO)
 # =========================
 def bool_to_str(valor):
@@ -43,7 +57,6 @@ def extrair_json(texto):
         if match:
             dados = json.loads(match.group(0))
 
-            # 🔥 Compatibilidade com respostas antigas do modelo
             if "CriseAmbiental" in dados and "CriseClimatica" not in dados:
                 dados["CriseClimatica"] = dados["CriseAmbiental"]
 
@@ -51,7 +64,6 @@ def extrair_json(texto):
     except:
         pass
 
-    # fallback inteligente
     meio = bool(re.search(r'meio.*true', texto, re.I))
     crise = bool(re.search(r'crise.*true', texto, re.I))
 
@@ -113,7 +125,7 @@ Notícia:
     for tentativa in range(tentativas):
         try:
             resposta = ollama.chat(
-                model="llama3.2:3b",
+                model=MODEL_NAME,
                 messages=[{"role": "user", "content": PROMPT}],
                 options={"temperature": 0}
             )
@@ -121,7 +133,6 @@ Notícia:
             conteudo = resposta["message"]["content"]
             dados = extrair_json(conteudo)
 
-            # 🔥 NORMALIZAÇÃO FORTE
             dados["MeioAmbiente"] = str(dados.get("MeioAmbiente")).lower() in ["true", "1"]
             dados["CriseClimatica"] = str(dados.get("CriseClimatica")).lower() in ["true", "1"]
 
@@ -177,9 +188,6 @@ for arquivo in arquivos:
 
 df_total = pd.concat(dfs, ignore_index=True)
 print(f"\n📊 Total de notícias: {len(df_total)}")
-
-arquivo_saida = "resultado_final_oficial.xlsx"
-arquivo_parcial = "parcial_resultado.xlsx"
 
 # =========================
 # CHECKPOINT
@@ -264,7 +272,7 @@ salvar_excel(df_final, arquivo_parcial)
 # =========================
 print("\n♻️ Reprocessando erros até zerar...")
 
-for rodada in range(3):  # tenta até 3 vezes
+for rodada in range(3):
     df_final = pd.read_excel(arquivo_saida)
 
     erros = df_final[
@@ -301,17 +309,15 @@ for rodada in range(3):  # tenta até 3 vezes
 
 print("\n✅ Final 100% limpo!")
 
-
 # =========================
 # BACKUP
 # =========================
 timestamp = time.strftime("%Y%m%d_%H%M%S")
-backup_nome = f"backup_resultado_{timestamp}.xlsx"
+backup_nome = f"backup_{MODEL_NAME.replace(':','_')}_{timestamp}.xlsx"
 
 salvar_excel(df_final, backup_nome)
 
 print(f"\n🛡️ Backup criado: {backup_nome}")
-
 
 # =========================
 # FINAL
